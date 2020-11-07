@@ -2,7 +2,7 @@
 
 ## 简介
 
-本文通过 Pytorch 实现 GCN 对 Cora 数据集进行结点分类，
+本文通过 Pytorch 实现 GCN 对 Cora 数据集进行结点分类。
 
 ## 数据集说明
 
