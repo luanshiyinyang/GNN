@@ -48,7 +48,7 @@ GraphSAGE 研究了聚合邻居操作所需的性质，提出了几种新的聚�
 
 GraphSAGE 的算法过程完全没有拉普拉斯矩阵的参与，每个节点的特征学习过程仅仅只与其$k$阶邻居相关，而不需要全图对的结构西南西，这样的方法适合做归纳学习（Inductive Learning），这也就是 GraphSAGE 论文题目 Inductive Representation Learning on Large Graphs 的由来。这里我就不多阐述归纳学习和转导学习（Transductive Learning）的理论，需要知道的是，对 GraphSAGE 而言，新出现的节点数据，只需要遍历得到$k$阶子图，就可以代入模型进行预测，这种特性使得 GraphSAGE 潜力巨大。
 
-总的来说，GraphSAEG 对空域视角下的 GCN 作了一次解构，提出几种邻居聚合算子，同时通过采样邻居，大大改进了算法的性能，关于其更详细的内容推荐阅读[原论文](https://arxiv.org/pdf/1706.02216.pdf)
+总的来说，GraphSAEG 对空域视角下的 GCN 作了一次解构，提出几种邻居聚合算子，同时通过采样邻居，大大改进了算法的性能，关于其更详细的内容推荐阅读[原论文](https://arxiv.org/pdf/1706.02216.pdf)。
 
 ## GraphSAGE 节点分类
 
