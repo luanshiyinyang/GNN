@@ -10,7 +10,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 
-from model import GAT_model, GCN
+from model import GCN, ChebNet, GATNet
 from data_loader import LoadData
 from metrics import MAE, MAPE, RMSE
 
@@ -39,12 +39,9 @@ def main():
 
     test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
 
-    # Loading Model
-    # TODO:  Construct the GAT (must) and DCRNN (optional) Model
-
-    # my_net = None
-    my_net = GAT_model(6, 6, 1)
-    # my_net = GCN(6,6,1)
+    # my_net = GCN(6, 6, 1)
+    my_net = ChebNet(6, 6, 1, 1)
+    # my_net = GATNet(6, 6, 1, 2)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     my_net = my_net.to(device)
@@ -99,7 +96,6 @@ def main():
         for data in train_loader:  # ["graph": [B, N, N] , "flow_x": [B, N, H, D], "flow_y": [B, N, 1, D]]
             my_net.zero_grad()
             predict_value = my_net(data, device).to(torch.device("cpu"))  # [0, 1] -> recover
-
             loss = criterion(predict_value, data["flow_y"])
             epoch_mae += MAE(data["flow_y"], predict_value)
             epoch_rmse += RMSE(data["flow_y"], predict_value)
