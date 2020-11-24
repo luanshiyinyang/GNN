@@ -2,3 +2,5 @@
 .vscode/
 __pycache__
 dataset/
+*.pth
+*.pt
