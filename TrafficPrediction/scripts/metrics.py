@@ -2,6 +2,7 @@ import math
 
 import numpy as np
 
+
 def MAE(y_true, y_pre):
     y_true = (y_true).detach().numpy().copy().reshape((-1, 1))
     y_pre = (y_pre).detach().numpy().copy().reshape((-1, 1))
