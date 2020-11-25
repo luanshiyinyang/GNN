@@ -29,7 +29,7 @@ train_loader, test_loader = get_loader('PEMS08')
 
 gcn = GCN(6, 6, 1)
 chebnet = ChebNet(6, 6, 1, 1)
-gat = GAT(6, 6, 1, 3)
+gat = GAT(6, 6, 1, 1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 models = [chebnet.to(device), gcn.to(device), gat.to(device)]
 
