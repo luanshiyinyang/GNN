@@ -204,13 +204,13 @@ def get_loader(ds_name="PEMS04"):
                              time_interval=5, history_length=6,
                              train_mode="train")
 
-    train_loader = DataLoader(train_data, batch_size=64, shuffle=True)
+    train_loader = DataLoader(train_data, batch_size=128, shuffle=True)
 
     test_data = PEMSDataset(data_path=["../dataset/PEMS/{}/distance.csv".format(ds_name), "../dataset/PEMS/{}/data.npz".format(ds_name)], num_nodes=num_nodes,
                             divide_days=[45, 14],
                             time_interval=5, history_length=6,
                             train_mode="test")
 
-    test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
+    test_loader = DataLoader(test_data, batch_size=128, shuffle=False)
     return train_loader, test_loader
 

@@ -17,19 +17,14 @@ class GCN(nn.Module):
         self.linear_2 = nn.Linear(hid_c, out_c)
         self.act = nn.ReLU()
 
-    def forward(self, data, device):
-        graph_data = data["graph"].to(device)[0]  # [N, N]
+    def forward(self, data):
+        graph_data = data["graph"][0]  # [N, N]
         graph_data = self.process_graph(graph_data)
-
-        flow_x = data["flow_x"].to(device)  # [B, N, H, D]
-
+        flow_x = data["flow_x"]  # [B, N, H, D]
         B, N = flow_x.size(0), flow_x.size(1)
-
         flow_x = flow_x.view(B, N, -1)  # [B, N, H*D]  H = 6, D = 1
-
         output_1 = self.linear_1(flow_x)  # [B, N, hid_C]
         output_1 = self.act(torch.matmul(graph_data, output_1))  # [N, N], [B, N, Hid_C]
-
         output_2 = self.linear_2(output_1)
         output_2 = self.act(torch.matmul(graph_data, output_2))  # [B, N, 1, Out_C]
 
@@ -145,9 +140,9 @@ class ChebNet(nn.Module):
         self.conv2 = ChebConv(in_c=hid_c, out_c=out_c, K=K)
         self.act = nn.ReLU()
 
-    def forward(self, data, device):
-        graph_data = data["graph"].to(device)[0]  # [N, N]
-        flow_x = data["flow_x"].to(device)  # [B, N, H, D]
+    def forward(self, data):
+        graph_data = data["graph"][0]  # [N, N]
+        flow_x = data["flow_x"]  # [B, N, H, D]
 
         B, N = flow_x.size(0), flow_x.size(1)
 
@@ -160,71 +155,68 @@ class ChebNet(nn.Module):
 
 
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, in_c, out_c):
+    def __init__(self, in_c, out_c, alpha=0.2):
         """
-        GAT layer
-        :param in_c: input channels
-        :param out_c: output channels
+        graph attention layer
+        :param in_c:
+        :param out_c:
+        :param alpha:
         """
         super(GraphAttentionLayer, self).__init__()
         self.in_c = in_c
         self.out_c = out_c
+        self.alpha = alpha
 
-        self.F = F.softmax
+        self.W = nn.Parameter(torch.empty(size=(in_c, out_c)))
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        self.a = nn.Parameter(torch.empty(size=(2 * out_c, 1)))
+        nn.init.xavier_uniform_(self.a.data, gain=1.414)
+        self.leakyrelu = nn.LeakyReLU(self.alpha)
 
-        self.W = nn.Linear(in_c, out_c, bias=False)  # y = W * x
-        self.b = nn.Parameter(torch.Tensor(out_c))
+    def forward(self, features, adj):
+        B, N = features.size(0), features.size(1)
+        adj = adj + torch.eye(N, dtype=adj.dtype).cuda()  # A+I
+        h = torch.matmul(features, self.W)  # [B,N,out_features]
+        # [B, N, N, 2 * out_features]
+        a_input = torch.cat([h.repeat(1, 1, N).view(B, N * N, -1), h.repeat(1, N, 1)], dim=2).view(B, N, -1, 2 * self.out_c)
+        e = self.leakyrelu(torch.matmul(a_input, self.a).squeeze(3))  # [B,N, N, 1] => [B, N, N]
+        zero_vec = -1e12 * torch.ones_like(e)
+        attention = torch.where(adj > 0, e, zero_vec)  # [B,N,N]
+        attention = F.softmax(attention, dim=2)  # softmax [N, N]
+        # attention = F.dropout(attention, 0.5)
+        h_prime = torch.matmul(attention, h)  # [B,N, N]*[N, out_features] => [B,N, out_features]
+        return h_prime
 
-        nn.init.normal_(self.W.weight)
-        nn.init.normal_(self.b)
-
-    def forward(self, inputs, graph):
-        """
-        :param inputs: input features, [B, N, C].
-        :param graph: graph structure, [N, N].
-        :return: output features, [B, N, D].
-        """
-
-        h = self.W(inputs)  # [B, N, D]
-        outputs = torch.bmm(h, h.transpose(1, 2)) * graph.unsqueeze(0)  # [B, N, D]*[B, D, N]->[B, N, N], x(i)^T * x(j)
-        outputs.data.masked_fill_(torch.eq(outputs, 0), -float(1e16))
-
-        attention = self.F(outputs, dim=2)  # [B, N, N]  # softmax
-        # information aggregation
-        return torch.bmm(attention, h) + self.b
-
-
-class GATSubNet(nn.Module):
-    def __init__(self, in_c, hid_c, out_c, n_heads):
-        super(GATSubNet, self).__init__()
-        # recurrent head
-        self.attention_module = nn.ModuleList([GraphAttentionLayer(in_c, hid_c) for _ in range(n_heads)])
-        self.out_att = GraphAttentionLayer(hid_c * n_heads, out_c)
-        self.act = nn.LeakyReLU()
-
-    def forward(self, inputs, graph):
-        """
-        :param inputs: [B, N, C]
-        :param graph: [N, N]
-        :return:
-        """
-        outputs = torch.cat([attn(inputs, graph) for attn in self.attention_module], dim=-1)  # [B, N, hid_c * h_head]
-        outputs = self.act(outputs)
-        outputs = self.out_att(outputs, graph)
-        return self.act(outputs)
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GAT(nn.Module):
-    def __init__(self, in_c, hid_c, out_c, n_heads):
+    def __init__(self, in_c, hid_c, out_c, n_heads=8):
+        """
+        :param in_c: int, number of input channels.
+        :param hid_c: int, number of hidden channels.
+        :param out_c: int, number of output channels.
+        :param K:
+        """
         super(GAT, self).__init__()
-        self.subnet = GATSubNet(in_c, hid_c, out_c, n_heads)
+        self.attentions = nn.ModuleList([GraphAttentionLayer(in_c, hid_c) for _ in range(n_heads)])
+        # self.conv1 = GraphAttentionLayer(in_c, hid_c)
+        self.conv2 = GraphAttentionLayer(hid_c * n_heads, out_c)
+        self.act = nn.ReLU()
 
-    def forward(self, data, device):
-        graph = data["graph"][0].to(device)  # [N, N]
-        flow = data["flow_x"]  # [B, N, T, C]
-        flow = flow.to(device)
+    def forward(self, data):
+        # data prepare
+        adj = data["graph"][0]  # [N, N]
+        x = data["flow_x"]  # [B, N, H, D]
+        B, N = x.size(0), x.size(1)
+        x = x.view(B, N, -1)  # [B, N, H*D]
 
-        B, N = flow.size(0), flow.size(1)
-        flow = flow.view(B, N, -1)  # [B, N, T * C]
-        prediction = self.subnet(flow, graph).unsqueeze(2)  # [B, N, 1, C]
-        return prediction
+        # forward
+        outputs = torch.cat([attention(x, adj) for attention in self.attentions], dim=-1)
+        outputs = self.act(outputs)
+        # output_1 = self.act(self.conv1(flow_x, adj))
+        output_2 = self.act(self.conv2(outputs, adj))
+
+        return output_2.unsqueeze(2)  # [B,1,N,1]
+

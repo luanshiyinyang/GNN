@@ -13,32 +13,32 @@ def get_flow(filename):
 
 def show_pred(test_loader, all_y_true, all_predict_values):
     node_id = 166
-    plt.title(str(node_id) + " 号节点交通流量可视化(第一天)")
-    plt.xlabel("时刻/5min")
-    plt.ylabel("交通流量")
+    plt.title("no. {} node the first day".format(node_id))
+    plt.xlabel("time/5min")
+    plt.ylabel("flow")
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_y_true)[:24 * 12, node_id, 0, 0], label='真实值')
+                                              all_y_true)[:24 * 12, node_id, 0, 0], label='true')
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_predict_values[0])[:24 * 12, node_id, 0, 0], label='ChebNet预测值')
+                                              all_predict_values[0])[:24 * 12, node_id, 0, 0], label='ChebNet pred')
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_predict_values[1])[:24 * 12, node_id, 0, 0], label='GCN预测值')
+                                              all_predict_values[1])[:24 * 12, node_id, 0, 0], label='GCN pred')
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_predict_values[2])[:24 * 12, node_id, 0, 0], label='GAT预测值')
+                                              all_predict_values[2])[:24 * 12, node_id, 0, 0], label='GAT pred')
     plt.legend()
     plt.savefig("../assets/the first day pred flow in node {}.png".format(str(node_id)), dpi=400)
     plt.show()
 
-    plt.title(str(node_id) + " 号节点交通流量可视化(两周)")
-    plt.xlabel("时刻/5min")
-    plt.ylabel("交通流量")
+    plt.title("no. {} node the two weeks".format(node_id))
+    plt.xlabel("time/5min")
+    plt.ylabel("flow")
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_y_true)[:, node_id, 0, 0], label='真实值')
+                                              all_y_true)[:, node_id, 0, 0], label='true')
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_predict_values[0])[:, node_id, 0, 0], label='ChebNet预测值')
+                                              all_predict_values[0])[:, node_id, 0, 0], label='ChebNet pred')
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_predict_values[1])[:, node_id, 0, 0], label='GCN预测值')
+                                              all_predict_values[1])[:, node_id, 0, 0], label='GCN pred')
     plt.plot(test_loader.dataset.recover_data(test_loader.dataset.flow_norm[0], test_loader.dataset.flow_norm[1],
-                                              all_predict_values[2])[:, node_id, 0, 0], label='GAT预测值')
+                                              all_predict_values[2])[:, node_id, 0, 0], label='GAT pred')
     plt.legend()
     plt.savefig("../assets/the first two weeks pred flow in node {}.png".format(str(node_id)), dpi=400)
     plt.show()
