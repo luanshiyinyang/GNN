@@ -168,9 +168,9 @@ class GraphAttentionLayer(nn.Module):
         self.alpha = alpha
 
         self.W = nn.Parameter(torch.empty(size=(in_c, out_c)))
-        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        nn.init.xavier_normal_(self.W.data)
         self.a = nn.Parameter(torch.empty(size=(2 * out_c, 1)))
-        nn.init.xavier_uniform_(self.a.data, gain=1.414)
+        nn.init.xavier_normal_(self.a.data)
         self.leakyrelu = nn.LeakyReLU(self.alpha)
 
     def forward(self, features, adj):
@@ -183,7 +183,6 @@ class GraphAttentionLayer(nn.Module):
         zero_vec = -1e12 * torch.ones_like(e)
         attention = torch.where(adj > 0, e, zero_vec)  # [B,N,N]
         attention = F.softmax(attention, dim=2)  # softmax [N, N]
-        # attention = F.dropout(attention, 0.5)
         h_prime = torch.matmul(attention, h)  # [B,N, N]*[N, out_features] => [B,N, out_features]
         return h_prime
 
@@ -192,18 +191,17 @@ class GraphAttentionLayer(nn.Module):
 
 
 class GAT(nn.Module):
-    def __init__(self, in_c, hid_c, out_c, n_heads=8):
+    def __init__(self, in_c, hid_c, out_c, n_heads=6):
         """
         :param in_c: int, number of input channels.
         :param hid_c: int, number of hidden channels.
         :param out_c: int, number of output channels.
-        :param K:
+        :param n_heads: how many heads
         """
         super(GAT, self).__init__()
         self.attentions = nn.ModuleList([GraphAttentionLayer(in_c, hid_c) for _ in range(n_heads)])
-        # self.conv1 = GraphAttentionLayer(in_c, hid_c)
-        self.conv2 = GraphAttentionLayer(hid_c * n_heads, out_c)
-        self.act = nn.ReLU()
+        self.conv2 = GraphAttentionLayer(hid_c*n_heads, out_c)
+        self.act = nn.ELU()
 
     def forward(self, data):
         # data prepare
@@ -213,9 +211,7 @@ class GAT(nn.Module):
         x = x.view(B, N, -1)  # [B, N, H*D]
 
         # forward
-        outputs = torch.cat([attention(x, adj) for attention in self.attentions], dim=-1)
-        outputs = self.act(outputs)
-        # output_1 = self.act(self.conv1(flow_x, adj))
+        outputs = self.act(torch.cat([attention(x, adj) for attention in self.attentions], dim=-1))
         output_2 = self.act(self.conv2(outputs, adj))
 
         return output_2.unsqueeze(2)  # [B,1,N,1]

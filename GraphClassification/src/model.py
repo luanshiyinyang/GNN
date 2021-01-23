@@ -1,46 +1,110 @@
-# SAGPool 图分类
+import torch
+import torch.nn as nn
+import torch.nn.init as init
+import torch.nn.functional as F
+import torch_scatter
+import numpy as np
+import scipy.sparse as sp
 
-## 简介
 
-在[之前的文章](https://blog.csdn.net/zhouchen1998/category_10528560.html)中，我主要提及了节点级别的任务，这种任务的特点是不断对节点的特征进行聚合，每次聚合各个节点都会聚集邻居的信息，但是，**图的结构是不会变化的**。图分类则是一个图层面的任务，与节点层面的任务不同，它需要的是图数据的全局信息，既包括图的结构信息，也包括每个节点的属性信息。图分类任务说来也简单，给定多张图及其标签，要求学习一个由图到相应标签的图分类模型，模型的重点是如何学习一个较好的全图表示向量。
+def normalization(adjacency):
+    """
+    L=D^-0.5 * (A+I) * D^-0.5
+    :param adjacency:
+    :return:
+    """
+    adjacency += sp.eye(adjacency.shape[0])
+    degree = np.array(adjacency.sum(1))
+    d_hat = sp.diags(np.power(degree, -0.5).flatten())
+    L = d_hat.dot(adjacency).dot(d_hat).tocoo()
+    indices = torch.from_numpy(np.asarray([L.row, L.col])).long()
+    values = torch.from_numpy(L.data.astype(np.float32))
+    tensor_adjacency = torch.sparse.FloatTensor(indices, values, L.shape)
+    return tensor_adjacency
 
-## SAGPool算法
 
-图分类任务和视觉图像的分类任务类似，都需要对全局的信息进行融合学习。不妨回顾一下CNN中的处理思路，在卷积神经网络中，我们通常利用层次化池化来逐渐提取全局信息。得益于图像的栅格结构，池化操作能够非常简单高效地的实现并用于高阶信息的提取。然而，非规则的图结构数据使得池化的设计变得比较困难。
+class GraphConvolution(nn.Module):
 
-SAGPool（Self-Attention Pooling，自注意力池化）是层次化池化的一种实现，它的思路是通过图卷积从图中自适应学习到节点的重要性，然后利用TopK机制进行节点丢弃。
+    def __init__(self, input_dim, output_dim, use_bias=True):
+        super(GraphConvolution, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.use_bias = use_bias
+        self.weight = nn.Parameter(torch.Tensor(input_dim, output_dim))
+        if self.use_bias:
+            self.bias = nn.Parameter(torch.Tensor(output_dim))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
 
-具体来看，使用GCN为每个节点赋予重要性得分，如下式所示。其中$\sigma$表示激活函数，$\tilde{A}$表示增加了自连接的邻接矩阵，$X$表示节点特征，$\Theta_{a t t} \in R^{N\times 1}$表示权重参数，这也是自注意力池化层引入的唯一参数。
+    def reset_parameters(self):
+        init.kaiming_uniform_(self.weight)
+        if self.use_bias:
+            init.zeros_(self.bias)
 
-$$
-Z=\sigma\left(\tilde{D}^{-\frac{1}{2}} \tilde{A} \tilde{D}^{-\frac{1}{2}} X \Theta_{a t t}\right)
-$$
+    def forward(self, adjacency, input_feature):
+        """邻接矩阵是稀疏矩阵，因此在计算时使用稀疏矩阵乘法"""
+        support = torch.mm(input_feature, self.weight)
+        output = torch.sparse.mm(adjacency, support)
+        if self.use_bias:
+            output += self.bias
+        return output
 
-根据重要性得分以及图的拓扑结构可以进行池化操作，下式就是TopK选择的过程，基于$Z$得分，只会有$\lceil k N\rceil$个节点继续保留。
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+            + str(self.input_dim) + ' -> ' \
+            + str(self.output_dim) + ')'
 
-$$
-\mathrm{idx}=\operatorname{top-rank}(Z,\lceil k N\rceil), \quad Z_{\text {mask}}=Z_{\text {idx }}
-$$
 
-就这样，反复堆叠上述的自注意力池化层就可以进行图的池化，最后通过全局池化将各个图降维到同一维度即可。对算法细节感兴趣可以查看[原论文](https://arxiv.org/abs/1904.08082)。
+# ReadOut
+def global_max_pool(x, graph_indicator):
+    num = graph_indicator.max().item() + 1
+    return torch_scatter.scatter_max(x, graph_indicator, dim=0, dim_size=num)[0]
 
-## 数据集
 
-本项目采用的是D&D数据集，这是一个包含1178个蛋白质结构的数据集，每个蛋白质用图结构表示，图中的节点为氨基酸，如果两个节点之间的距离小于6埃则它们之间有边相连，每个图分为酶和非酶两种类别之一。该数据集源于论文《Distinguishing enzyme structures from non-enzymes without alignments》，下载地址为[BaiduNetDisk](https://pan.baidu.com/s/1J3ZiiG0HVFajCLHiKiFWhg)(code: zczc)。
+def global_avg_pool(x, graph_indicator):
+    num = graph_indicator.max().item() + 1
+    return torch_scatter.scatter_mean(x, graph_indicator, dim=0, dim_size=num)
 
-## 模型构建
 
-在开始之前我们先来安装一个包`torch-scatter`，它是torch的一个拓展包，可以很方便地如下图般按照索引类来分别进行均值和最大值求解，安装可以通过pip安装，也可以通过下面的地址找到合适的版本安装。
+# SAGPool layer
+def top_rank(attention_score, graph_indicator, keep_ratio):
+    graph_id_list = list(set(graph_indicator.cpu().numpy()))
+    mask = attention_score.new_empty((0,), dtype=torch.bool)
+    for graph_id in graph_id_list:
+        graph_attn_score = attention_score[graph_indicator == graph_id]
+        graph_node_num = len(graph_attn_score)
+        graph_mask = attention_score.new_zeros((graph_node_num,),
+                                               dtype=torch.bool)
+        keep_graph_node_num = int(keep_ratio * graph_node_num)
+        _, sorted_index = graph_attn_score.sort(descending=True)
+        graph_mask[sorted_index[:keep_graph_node_num]] = True
+        mask = torch.cat((mask, graph_mask))
 
-![](./assets/add.svg)
+    return mask
 
-```shell
-https://s3.eu-central-1.amazonaws.com/pytorch-geometric.com/whl/torch-1.6.0.html
-```
 
-然后我们来构建模型，核心的TopK-rank等方法就不多赘述，可以查看文末的Github链接，下面是自注意力池化的具体实现，思路就是我上面说的利用GCN来进行节点评分。
+def filter_adjacency(adjacency, mask):
+    """
+    update graph by mask
+    :param adjacency:
+    :param mask:
+    :return:
+    """
+    device = adjacency.device
+    mask = mask.cpu().numpy()
+    indices = adjacency.coalesce().indices().cpu().numpy()
+    num_nodes = adjacency.size(0)
+    row, col = indices
+    maskout_self_loop = row != col
+    row = row[maskout_self_loop]
+    col = col[maskout_self_loop]
+    sparse_adjacency = sp.csr_matrix((np.ones(len(row)), (row, col)),
+                                     shape=(num_nodes, num_nodes), dtype=np.float32)
+    filtered_adjacency = sparse_adjacency[mask, :][:, mask]
+    return normalization(filtered_adjacency).to(device)
 
-```python
+
 class SelfAttentionPooling(nn.Module):
     def __init__(self, input_dim, keep_ratio, activation=torch.tanh):
         super(SelfAttentionPooling, self).__init__()
@@ -58,13 +122,8 @@ class SelfAttentionPooling(nn.Module):
         mask_graph_indicator = graph_indicator[mask]
         mask_adjacency = filter_adjacency(adjacency, mask)
         return hidden, mask_graph_indicator, mask_adjacency
-```
 
-有了自注意力池化层，就可以定义模型了，论文提出了两种模型设计如下图，左边的模型是global模型，右边的模型是hierarchical模型，实验证明前者适合小图分类，后者适合大图分类。
 
-![](./assets/model.png)
-
-```python
 class ModelA(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_classes=2):
         """
@@ -161,14 +220,3 @@ class ModelB(nn.Module):
 
         logits = self.mlp(readout)
         return logits
-```
-
-## 模型训练
-
-下面使用两种模型分别在数据集上进行训练和推理，global模型测试集准确率0.75，hierarchical模型测试集准确率0.72。下图是两个模型的实验对比图，设计的代码见文末Github。
-
-![](./assets/loss.png)
-
-## 补充说明
-
-本文简单实现D&D数据集上实验自注意力池化进行图分类任务，内容参考《深入浅出图神经网络》以及SAGPool的论文，代码开放于[Github](https://github.com/luanshiyinyang/GNN)，欢迎star和fork。

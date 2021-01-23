@@ -1,4 +1,3 @@
-import os
 import time
 import random
 
@@ -29,7 +28,11 @@ gcn = GCN(6, 6, 1)
 chebnet = ChebNet(6, 6, 1, 1)
 gat = GAT(6, 6, 1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-models = [chebnet.to(device), gcn.to(device), gat.to(device)]
+models = [
+    chebnet.to(device),
+    gcn.to(device),
+    gat.to(device)
+]
 
 all_predict_values = []
 epochs = 30
