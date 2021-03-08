@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from torchsummary import summary
 
 
 class GraphConvolution(nn.Module):
@@ -48,13 +47,12 @@ class GCN(nn.Module):
         :param input_dim: 输入维度
         """
         super(GCN, self).__init__()
-        self.gcn1 = GraphConvolution(input_dim, 256)
-        self.gcn2 = GraphConvolution(256, 64)
-        self.gcn3 = GraphConvolution(64, 7)
+        self.gcn1 = GraphConvolution(input_dim, 128)
+        self.gcn2 = GraphConvolution(128, 7)
 
     def forward(self, adjacency, feature):
         h = F.relu(self.gcn1(adjacency, feature))
-        logits = self.gcn2(adjacency, h)
+        logits = F.softmax(self.gcn2(adjacency, h), dim=-1)
         return logits
 
 
